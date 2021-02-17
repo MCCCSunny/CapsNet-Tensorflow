@@ -11,7 +11,7 @@ from config import cfg
 from utils import reduce_sum
 from utils import softmax
 from utils import get_shape
-
+import pdb
 
 epsilon = 1e-9
 

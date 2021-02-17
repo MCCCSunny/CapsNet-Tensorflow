@@ -11,7 +11,7 @@ from utils import get_batch_data
 from utils import softmax
 from utils import reduce_sum
 from capsLayer import CapsLayer
-
+import pdb
 
 epsilon = 1e-9
 
@@ -35,8 +35,9 @@ class CapsNet(object):
         with self.graph.as_default():
             if is_training:
                 self.X, self.labels = get_batch_data(cfg.dataset, cfg.batch_size, cfg.num_threads)
+                # (128,28,28,1), 128
                 self.Y = tf.one_hot(self.labels, depth=self.num_label, axis=1, dtype=tf.float32)
-
+                # (128, 10)
                 self.build_arch()
                 self.loss()
                 self._summary()
@@ -55,11 +56,11 @@ class CapsNet(object):
 
     def build_arch(self):
         with tf.variable_scope('Conv1_layer'):
+            # self.X: (128,28,28,1)
             # Conv1, return tensor with shape [batch_size, 20, 20, 256]
             conv1 = tf.contrib.layers.conv2d(self.X, num_outputs=256,
                                              kernel_size=9, stride=1,
                                              padding='VALID')
-
         # Primary Capsules layer, return tensor with shape [batch_size, 1152, 8, 1]
         with tf.variable_scope('PrimaryCaps_layer'):
             primaryCaps = CapsLayer(num_outputs=32, vec_len=8, with_routing=False, layer_type='CONV')
@@ -69,22 +70,20 @@ class CapsNet(object):
         with tf.variable_scope('DigitCaps_layer'):
             digitCaps = CapsLayer(num_outputs=self.num_label, vec_len=16, with_routing=True, layer_type='FC')
             self.caps2 = digitCaps(caps1)
-
         # Decoder structure in Fig. 2
         # 1. Do masking, how:
         with tf.variable_scope('Masking'):
             # a). calc ||v_c||, then do softmax(||v_c||)
             # [batch_size, 10, 16, 1] => [batch_size, 10, 1, 1]
-            self.v_length = tf.sqrt(reduce_sum(tf.square(self.caps2),
-                                               axis=2, keepdims=True) + epsilon)
+            self.v_length = tf.sqrt(reduce_sum(tf.square(self.caps2), axis=2, keepdims=True) + epsilon) # (128,10,1,1)
             self.softmax_v = softmax(self.v_length, axis=1)
             # assert self.softmax_v.get_shape() == [cfg.batch_size, self.num_label, 1, 1]
 
             # b). pick out the index of max softmax val of the 10 caps
             # [batch_size, 10, 1, 1] => [batch_size] (index)
-            self.argmax_idx = tf.to_int32(tf.argmax(self.softmax_v, axis=1))
+            self.argmax_idx = tf.to_int32(tf.argmax(self.softmax_v, axis=1)) # (128,1,1)
             # assert self.argmax_idx.get_shape() == [cfg.batch_size, 1, 1]
-            self.argmax_idx = tf.reshape(self.argmax_idx, shape=(cfg.batch_size, ))
+            self.argmax_idx = tf.reshape(self.argmax_idx, shape=(cfg.batch_size, )) # (128,)
 
             # Method 1.
             if not cfg.mask_with_y:
@@ -100,9 +99,8 @@ class CapsNet(object):
                 assert self.masked_v.get_shape() == [cfg.batch_size, 1, 16, 1]
             # Method 2. masking with true label, default mode
             else:
-                self.masked_v = tf.multiply(tf.squeeze(self.caps2), tf.reshape(self.Y, (-1, self.num_label, 1)))
-                self.v_length = tf.sqrt(reduce_sum(tf.square(self.caps2), axis=2, keepdims=True) + epsilon)
-
+                self.masked_v = tf.multiply(tf.squeeze(self.caps2), tf.reshape(self.Y, (-1, self.num_label, 1))) #(128,10,16)
+                self.v_length = tf.sqrt(reduce_sum(tf.square(self.caps2), axis=2, keepdims=True) + epsilon) #(128,10,1,1)
         # 2. Reconstructe the MNIST images with 3 FC layers
         # [batch_size, 1, 16, 1] => [batch_size, 16] => [batch_size, 512]
         with tf.variable_scope('Decoder'):
